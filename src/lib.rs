@@ -1,11 +1,7 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
-use phper::arrays::ZArray;
-use phper::{echo, functions::Argument, modules::Module, php_get_module, values::ZVal, Error};
-use std::collections::HashMap;
+use phper::{functions::Argument, modules::Module, php_get_module, values::ZVal};
 use std::convert::Infallible;
-use std::net::SocketAddr;
-use std::str::Utf8Error;
 
 static mut CLOSURE: Option<ZVal> = None;
 
@@ -13,7 +9,7 @@ static mut CLOSURE: Option<ZVal> = None;
 async fn start_server(arguments: &mut [ZVal]) -> phper::Result<()> {
     pretty_env_logger::init();
 
-    let mut php_closure = arguments[0].clone();
+    let php_closure = arguments[0].clone();
     unsafe {
         CLOSURE = Some(php_closure);
     }

@@ -32,7 +32,7 @@ async fn create_closure_service(request: Request<Body>) -> Result<Response<Body>
     let query_string = String::from(request.uri().query().unwrap());
     let mut php_closure;
     unsafe {
-        php_closure = CLOSURE.clone().expect("Missed closure");
+        php_closure = CLOSURE.clone().unwrap();
     }
 
     let response = php_closure

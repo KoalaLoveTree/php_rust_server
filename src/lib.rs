@@ -1,8 +1,10 @@
 mod errors;
+
+use crate::errors::PhpRustServerError::InternalServerError;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
-use phper::{Error, functions::Argument, modules::Module, php_get_module, values::ZVal};
-use crate::errors::PhpRustServerError;
+use phper::errors::Throwable;
+use phper::{functions::Argument, modules::Module, php_get_module, values::ZVal, Error};
 
 static mut CLOSURE: Option<ZVal> = None;
 
@@ -16,7 +18,7 @@ async fn start_server(arguments: &mut [ZVal]) -> phper::Result<()> {
     }
 
     let make_svc = make_service_fn(|_conn| async {
-        Ok::<_, PhpRustServerError>(service_fn(create_closure_service))
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(service_fn(create_closure_service))
     });
 
     let addr = ([127, 0, 0, 1], 3000).into();
@@ -25,36 +27,46 @@ async fn start_server(arguments: &mut [ZVal]) -> phper::Result<()> {
 
     println!("Listening on http://{}", addr);
 
-
-    server.await.unwrap_or_else(|err| {
-        let error_message = err.to_string();
-        return Err(Error::from(error_message);
-    });
+    server.await.map_err(|err| Error::Boxed(Box::new(err)))?;
 
     Ok(())
 }
 
 async fn create_closure_service(
     request: Request<Body>,
-) -> Result<Response<Body>, PhpRustServerError> {
+) -> Result<Response<Body>, Box<dyn std::error::Error + Send + Sync>> {
     let query_string = String::from(request.uri().query().unwrap_or(""));
     let mut php_closure;
     unsafe {
         php_closure = CLOSURE.clone().unwrap();
     }
 
-    let response = match php_closure.call(&mut [ZVal::from(query_string)]) {
-        Ok(response) => match response.expect_z_str() {
-            Ok(z_str) => match z_str.to_str() {
-                Ok(str_value) => str_value.to_string(),
-                Err(_) => return Err(PhpRustServerError::ConvertingToStringSliceError()),
-            },
-            Err(_) => {
-                return Err(PhpRustServerError::InvalidZTypeError{ expected: "ZStr".to_string() });
-            }
-        },
-        Err(_) => return Err(PhpRustServerError::InvalidClosureError()),
-    };
+    let response = php_closure
+        .call(&mut [ZVal::from(query_string)])
+        .map_err(|err| {
+            Box::new(InternalServerError {
+                message: err
+                    .get_message()
+                    .unwrap_or("unidentified error".to_string())
+                    .to_string(),
+            })
+        })?
+        .expect_z_str()
+        .map_err(|err| {
+            Box::new(InternalServerError {
+                message: err
+                    .get_message()
+                    .unwrap_or("unidentified error".to_string())
+                    .to_string(),
+            })
+        })?
+        .to_str()
+        .map_err(|err| {
+            Box::new(InternalServerError {
+                message: err.to_string(),
+            })
+        })?
+        .to_string();
 
     Ok(Response::new(Body::from(response)))
 }
